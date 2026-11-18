@@ -1,0 +1,21 @@
+# Python Caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases & logs
+*.db
+*.sqlite3
+*.log
+
+# Environment & Secrets
+.env
+.env.local
+.DS_Store
+
+# Virtualenv
+venv/
+env/
+.venv/

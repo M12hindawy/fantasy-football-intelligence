@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Football Intelligence Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+  <style>
+    * { font-family: 'Cairo', sans-serif; }
+    .card-glow { box-shadow: 0 0 20px rgba(16,185,129,0.15); }
+    .bar-home  { background: linear-gradient(90deg,#3b82f6,#1d4ed8); }
+    .bar-draw  { background: linear-gradient(90deg,#f59e0b,#d97706); }
+    .bar-away  { background: linear-gradient(90deg,#ef4444,#b91c1c); }
+    .badge-high   { background:#10b981; color:#fff; }
+    .badge-medium { background:#f59e0b; color:#fff; }
+    .badge-low    { background:#6b7280; color:#fff; }
+    .badge-live   { background:#ef4444; color:#fff; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    .match-card { transition: transform .2s, box-shadow .2s; }
+    .match-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0,0,0,.3); }
+    ::-webkit-scrollbar { width:6px; }
+    ::-webkit-scrollbar-track { background:#1f2937; }
+    ::-webkit-scrollbar-thumb { background:#374151; border-radius:3px; }
+    .spinner { border:3px solid #374151; border-top:3px solid #10b981; border-radius:50%; width:40px; height:40px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .odds-input { background:#1f2937; border:1px solid #374151; color:#f9fafb; border-radius:8px; padding:6px 10px; width:80px; text-align:center; }
+    .odds-input:focus { outline:none; border-color:#10b981; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- ══════════════════ HEADER ══════════════════ -->
+  <header class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+      <div class="flex items-center gap-3">
+        <span class="text-3xl">⚽</span>
+        <div>
+          <h1 class="text-lg font-bold text-white leading-tight">Football Intelligence</h1>
+          <p class="text-xs text-gray-400">تحليل المباريات والتوقعات — 1xBet Markets</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <span id="date-badge" class="bg-gray-800 text-gray-300 text-xs px-3 py-1 rounded-full"></span>
+        <span id="count-badge" class="bg-emerald-900 text-emerald-300 text-xs px-3 py-1 rounded-full">جاري التحميل...</span>
+        <button onclick="loadMatches()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg transition font-bold">🔄 تحديث</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════ NOTICE BAR ══════════════════ -->
+  <div id="notice-bar" class="hidden bg-amber-900/50 border-b border-amber-700 px-4 py-2 text-center text-amber-300 text-xs"></div>
+  <div id="demo-bar" class="hidden bg-blue-900/60 border-b border-blue-700 px-4 py-3 text-center">
+    <p class="text-blue-300 text-sm font-bold">⚙️ وضع التجريب — لا يوجد Football-Data.org API key</p>
+    <p class="text-blue-400 text-xs mt-1">أضف <code class="bg-blue-900 px-1 rounded">FOOTBALL_DATA_API_KEY=your_key</code> في ملف <code class="bg-blue-900 px-1 rounded">.env</code> للحصول على مباريات حقيقية اليوم</p>
+    <a href="https://www.football-data.org/client/register" target="_blank" class="text-blue-300 underline text-xs">سجّل مجاناً هنا ←</a>
+  </div>
+
+  <!-- ══════════════════ FILTERS ══════════════════ -->
+  <div class="max-w-7xl mx-auto px-4 py-4">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-gray-400 text-sm">تصفية:</span>
+      <button onclick="filterBy('all')" id="f-all" class="filter-btn active-filter bg-emerald-700 text-white text-xs px-3 py-1 rounded-full transition">الكل</button>
+      <button onclick="filterBy('high')" id="f-high" class="filter-btn bg-gray-800 text-gray-300 text-xs px-3 py-1 rounded-full hover:bg-gray-700 transition">🟢 ثقة عالية</button>
+      <button onclick="filterBy('medium')" id="f-medium" class="filter-btn bg-gray-800 text-gray-300 text-xs px-3 py-1 rounded-full hover:bg-gray-700 transition">🟡 ثقة متوسطة</button>
+      <button onclick="filterBy('live')" id="f-live" class="filter-btn bg-gray-800 text-gray-300 text-xs px-3 py-1 rounded-full hover:bg-gray-700 transition">🔴 مباشر</button>
+      <input id="search-input" onkeyup="searchMatches()" placeholder="🔍 ابحث عن فريق..." class="bg-gray-800 border border-gray-700 text-white text-xs px-3 py-1 rounded-full w-44 focus:outline-none focus:border-emerald-500 mr-auto"/>
+    </div>
+  </div>
+
+  <!-- ══════════════════ STATS BAR ══════════════════ -->
+  <div class="max-w-7xl mx-auto px-4 pb-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="stats-bar">
+      <div class="bg-gray-900 rounded-xl p-3 text-center border border-gray-800">
+        <div id="stat-total" class="text-2xl font-black text-emerald-400">—</div>
+        <div class="text-xs text-gray-400 mt-1">إجمالي المباريات</div>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-3 text-center border border-gray-800">
+        <div id="stat-high" class="text-2xl font-black text-green-400">—</div>
+        <div class="text-xs text-gray-400 mt-1">توقعات بثقة عالية</div>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-3 text-center border border-gray-800">
+        <div id="stat-home" class="text-2xl font-black text-blue-400">—</div>
+        <div class="text-xs text-gray-400 mt-1">متوقع فوز الأجانب</div>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-3 text-center border border-gray-800">
+        <div id="stat-live" class="text-2xl font-black text-red-400">—</div>
+        <div class="text-xs text-gray-400 mt-1">مباريات مباشرة</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ LOADING ══════════════════ -->
+  <div id="loading" class="flex flex-col items-center justify-center py-24 gap-4">
+    <div class="spinner"></div>
+    <p class="text-gray-400 text-sm">جاري تحميل مباريات اليوم...</p>
+  </div>
+
+  <!-- ══════════════════ ERROR ══════════════════ -->
+  <div id="error-box" class="hidden max-w-xl mx-auto mt-8 bg-red-900/40 border border-red-700 rounded-xl p-6 text-center">
+    <p class="text-red-300 text-lg font-bold">⚠️ حدث خطأ</p>
+    <p id="error-msg" class="text-red-400 text-sm mt-2"></p>
+    <button onclick="loadMatches()" class="mt-4 bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm">إعادة المحاولة</button>
+  </div>
+
+  <!-- ══════════════════ MATCHES GRID ══════════════════ -->
+  <main id="matches-grid" class="hidden max-w-7xl mx-auto px-4 pb-16">
+    <div id="no-results" class="hidden text-center py-16 text-gray-500 text-sm">لا توجد مباريات تطابق الفلتر</div>
+    <div id="cards-container" class="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3"></div>
+  </main>
+
+  <!-- ══════════════════ ODDS CHECKER ══════════════════ -->
+  <section class="max-w-7xl mx-auto px-4 pb-16">
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 p-5">
+      <h2 class="text-base font-bold text-white mb-4">🧮 حاسبة الـ Overround والنسب الحقيقية (من 1xBet)</h2>
+      <p class="text-gray-400 text-xs mb-4">أدخل أوزان 1X2 من الموقع واعرف النسب الحقيقية بعد خصم هامش الشركة</p>
+      <div class="flex flex-wrap gap-3 items-end">
+        <div class="text-center">
+          <label class="text-xs text-blue-400 block mb-1">🏠 الأجانب</label>
+          <input id="o-home" type="number" step="0.01" value="2.10" class="odds-input"/>
+        </div>
+        <div class="text-center">
+          <label class="text-xs text-yellow-400 block mb-1">🤝 تعادل</label>
+          <input id="o-draw" type="number" step="0.01" value="3.30" class="odds-input"/>
+        </div>
+        <div class="text-center">
+          <label class="text-xs text-red-400 block mb-1">✈️ الضيوف</label>
+          <input id="o-away" type="number" step="0.01" value="3.50" class="odds-input"/>
+        </div>
+        <button onclick="checkOdds()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2 rounded-lg text-sm transition">حساب</button>
+      </div>
+      <div id="odds-result" class="hidden mt-5 bg-gray-800 rounded-xl p-4 text-sm"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ FOOTER ══════════════════ -->
+  <footer class="bg-gray-900 border-t border-gray-800 py-6 text-center text-xs text-gray-500">
+    <p class="font-bold text-amber-400 mb-2">⚠️ تحذير مسؤولية</p>
+    <p class="max-w-2xl mx-auto">المراهنة تنطوي على مخاطر مالية. استخدم فقط الأموال التي تستطيع تحمّل خسارتها. اتّبع القوانين المحلية ومتطلبات السن. هذا النظام للتحليل الاحتمالي فقط وليس ضماناً للربح.</p>
+    <p class="mt-3 text-gray-600">Football Value & Probability Analyzer v1.0 • Manus AI Spec v2.0</p>
+  </footer>
+
+  <!-- ══════════════════ MODAL ══════════════════ -->
+  <div id="modal" class="fixed inset-0 z-50 hidden bg-black/70 flex items-center justify-center p-4" onclick="closeModal(event)">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl max-w-lg w-full p-6 relative" onclick="event.stopPropagation()">
+      <button onclick="closeModal()" class="absolute top-3 left-3 text-gray-400 hover:text-white text-xl">✕</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let allMatches = [];
+let currentFilter = 'all';
+let searchTerm = '';
+
+// ── Load matches ───────────────────────────────────────────────────────────────
+async function loadMatches() {
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('matches-grid').classList.add('hidden');
+  document.getElementById('error-box').classList.add('hidden');
+  document.getElementById('count-badge').textContent = 'جاري التحميل...';
+
+  try {
+    const res = await fetch('/api/today');
+    const data = await res.json();
+
+    allMatches = data.matches || [];
+
+    // Date badge
+    const d = new Date();
+    document.getElementById('date-badge').textContent =
+      d.toLocaleDateString('ar-EG', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+    // Notice
+    if (data.notice) {
+      document.getElementById('notice-bar').textContent = data.notice;
+      document.getElementById('notice-bar').classList.remove('hidden');
+    }
+    if (data.api_key_missing) {
+      document.getElementById('demo-bar').classList.remove('hidden');
+    } else {
+      document.getElementById('demo-bar').classList.add('hidden');
+    }
+
+    // Count badge
+    document.getElementById('count-badge').textContent = `${allMatches.length} مباراة اليوم`;
+
+    // Stats
+    const high = allMatches.filter(m => m.decision.confidence === 'HIGH').length;
+    const homeWin = allMatches.filter(m => m.decision.side === 'home').length;
+    const live = allMatches.filter(m => m.status === 'live').length;
+    document.getElementById('stat-total').textContent = allMatches.length;
+    document.getElementById('stat-high').textContent = high;
+    document.getElementById('stat-home').textContent = homeWin;
+    document.getElementById('stat-live').textContent = live;
+
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('matches-grid').classList.remove('hidden');
+    renderCards();
+
+  } catch (err) {
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('error-box').classList.remove('hidden');
+    document.getElementById('error-msg').textContent = 'تعذّر الاتصال بالخادم: ' + err.message + '\nتأكد من تشغيل: uvicorn dashboard:app --port 8000';
+  }
+}
+
+// ── Render cards ───────────────────────────────────────────────────────────────
+function renderCards() {
+  let filtered = allMatches;
+
+  if (currentFilter === 'high')
+    filtered = filtered.filter(m => m.decision.confidence === 'HIGH');
+  else if (currentFilter === 'medium')
+    filtered = filtered.filter(m => m.decision.confidence === 'MEDIUM');
+  else if (currentFilter === 'live')
+    filtered = filtered.filter(m => m.status === 'live');
+
+  if (searchTerm)
+    filtered = filtered.filter(m =>
+      m.home_team.toLowerCase().includes(searchTerm) ||
+      m.away_team.toLowerCase().includes(searchTerm)
+    );
+
+  const container = document.getElementById('cards-container');
+  container.innerHTML = '';
+
+  if (filtered.length === 0) {
+    document.getElementById('no-results').classList.remove('hidden');
+    return;
+  }
+  document.getElementById('no-results').classList.add('hidden');
+
+  filtered.forEach(m => {
+    container.insertAdjacentHTML('beforeend', buildCard(m));
+  });
+}
+
+// ── Build a single match card ──────────────────────────────────────────────────
+function buildCard(m) {
+  const d = m.decision;
+  const isLive = m.status === 'live';
+  const score = (m.home_score !== null && m.away_score !== null)
+    ? `<span class="text-white font-black text-xl">${m.home_score} - ${m.away_score}</span>`
+    : `<span class="text-gray-500 text-sm">${m.kickoff_time}</span>`;
+
+  const badgeClass = {HIGH:'badge-high',MEDIUM:'badge-medium',LOW:'badge-low'}[d.confidence] || 'badge-low';
+  const liveTag = isLive
+    ? `<span class="badge-live text-xs px-2 py-0.5 rounded-full font-bold">🔴 مباشر</span>`
+    : '';
+
+  const topLabel = {home:'🏠 الأجانب يفوز',draw:'🤝 تعادل',away:'✈️ الضيوف يفوز'}[d.side] || d.label;
+
+  return `
+  <div class="match-card bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden cursor-pointer"
+       onclick='showDetail(${JSON.stringify(m).replace(/'/g,"&apos;")})'>
+    <!-- Competition header -->
+    <div class="bg-gray-800/60 px-4 py-2 flex justify-between items-center">
+      <span class="text-xs text-gray-400">${m.competition_flag} ${m.competition}</span>
+      <div class="flex items-center gap-2">
+        ${liveTag}
+        <span class="${badgeClass} text-xs px-2 py-0.5 rounded-full font-bold">${d.confidence === 'HIGH' ? 'ثقة عالية' : d.confidence === 'MEDIUM' ? 'ثقة متوسطة' : 'ثقة منخفضة'}</span>
+      </div>
+    </div>
+
+    <!-- Teams + Score -->
+    <div class="px-5 py-4">
+      <div class="flex items-center justify-between gap-2">
+        <div class="text-center flex-1">
+          <div class="text-2xl mb-1">🏠</div>
+          <div class="font-bold text-white text-sm leading-tight">${m.home_team}</div>
+          <div class="text-emerald-400 font-black text-lg mt-1">${m.p_home_win}%</div>
+        </div>
+        <div class="text-center px-3">
+          ${score}
+          <div class="text-gray-500 text-xs mt-1">تعادل ${m.p_draw}%</div>
+        </div>
+        <div class="text-center flex-1">
+          <div class="text-2xl mb-1">✈️</div>
+          <div class="font-bold text-white text-sm leading-tight">${m.away_team}</div>
+          <div class="text-red-400 font-black text-lg mt-1">${m.p_away_win}%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Probability bars -->
+    <div class="px-5 pb-3">
+      <div class="flex rounded-full overflow-hidden h-3 gap-0.5">
+        <div class="bar-home rounded-r-full transition-all" style="width:${m.p_home_win}%"></div>
+        <div class="bar-draw transition-all" style="width:${m.p_draw}%"></div>
+        <div class="bar-away rounded-l-full transition-all" style="width:${m.p_away_win}%"></div>
+      </div>
+      <div class="flex justify-between text-xs text-gray-500 mt-1">
+        <span>🏠 ${m.p_home_win}%</span><span>🤝 ${m.p_draw}%</span><span>${m.p_away_win}% ✈️</span>
+      </div>
+    </div>
+
+    <!-- Decision box -->
+    <div class="mx-4 mb-4 rounded-xl p-3 text-center" style="background:${d.color}22; border:1px solid ${d.color}55">
+      <p class="font-black text-base" style="color:${d.color}">${topLabel}</p>
+      <p class="text-gray-400 text-xs mt-1">احتمالية ${d.probability}%</p>
+    </div>
+
+    <!-- Quick stats row -->
+    <div class="border-t border-gray-800 px-5 py-3 grid grid-cols-3 gap-2 text-center text-xs">
+      <div>
+        <div class="text-white font-bold">${m.xg_home} - ${m.xg_away}</div>
+        <div class="text-gray-500">xG متوقع</div>
+      </div>
+      <div>
+        <div class="text-white font-bold">${m.p_btts}%</div>
+        <div class="text-gray-500">BTTS</div>
+      </div>
+      <div>
+        <div class="text-white font-bold">${m.p_over_25}%</div>
+        <div class="text-gray-500">+2.5 أهداف</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Detail modal ───────────────────────────────────────────────────────────────
+function showDetail(m) {
+  const d = m.decision;
+  document.getElementById('modal-content').innerHTML = `
+    <h2 class="text-base font-bold text-white mb-1">${m.competition_flag} ${m.competition}</h2>
+    <h3 class="text-xl font-black text-white mb-4">${m.home_team} <span class="text-gray-500">vs</span> ${m.away_team}</h3>
+    <div class="text-gray-400 text-xs mb-4">⏰ ${m.kickoff_full}</div>
+
+    <div class="grid grid-cols-3 gap-3 mb-5">
+      <div class="bg-blue-900/40 rounded-xl p-3 text-center border border-blue-800">
+        <div class="text-2xl font-black text-blue-400">${m.p_home_win}%</div>
+        <div class="text-xs text-gray-400 mt-1">🏠 ${m.home_team}</div>
+      </div>
+      <div class="bg-yellow-900/40 rounded-xl p-3 text-center border border-yellow-800">
+        <div class="text-2xl font-black text-yellow-400">${m.p_draw}%</div>
+        <div class="text-xs text-gray-400 mt-1">🤝 تعادل</div>
+      </div>
+      <div class="bg-red-900/40 rounded-xl p-3 text-center border border-red-800">
+        <div class="text-2xl font-black text-red-400">${m.p_away_win}%</div>
+        <div class="text-xs text-gray-400 mt-1">✈️ ${m.away_team}</div>
+      </div>
+    </div>
+
+    <div class="bg-gray-800 rounded-xl p-4 mb-4">
+      <h4 class="text-sm font-bold text-white mb-3">📊 أسواق أخرى</h4>
+      <div class="space-y-2 text-sm">
+        ${marketRow('BTTS (الفريقان يسجلان)', m.p_btts)}
+        ${marketRow('أكثر من 1.5 هدف', m.p_over_15)}
+        ${marketRow('أكثر من 2.5 هدف', m.p_over_25)}
+        ${marketRow('أكثر من 3.5 هدف', m.p_over_35)}
+      </div>
+    </div>
+
+    <div class="bg-gray-800 rounded-xl p-4 mb-4">
+      <h4 class="text-sm font-bold text-white mb-2">⚽ الأهداف المتوقعة (xG)</h4>
+      <div class="flex justify-around text-center">
+        <div><div class="text-xl font-black text-blue-400">${m.xg_home}</div><div class="text-xs text-gray-400">${m.home_team}</div></div>
+        <div class="text-gray-600 text-xl font-bold self-center">vs</div>
+        <div><div class="text-xl font-black text-red-400">${m.xg_away}</div><div class="text-xs text-gray-400">${m.away_team}</div></div>
+      </div>
+    </div>
+
+    <div class="rounded-xl p-4 text-center mb-4" style="background:${d.color}22;border:1px solid ${d.color}55">
+      <p class="font-black text-lg" style="color:${d.color}">
+        ${d.side === 'home' ? '🏠 الأجانب يفوز' : d.side === 'draw' ? '🤝 تعادل' : '✈️ الضيوف يفوز'}
+      </p>
+      <p class="text-sm text-gray-300 mt-1">احتمالية ${d.probability}% • ثقة: ${d.confidence === 'HIGH' ? 'عالية ✅' : d.confidence === 'MEDIUM' ? 'متوسطة ⚡' : 'منخفضة ⚠️'}</p>
+    </div>
+
+    <div class="bg-amber-900/30 border border-amber-700 rounded-xl p-3 text-xs text-amber-300 text-center">
+      ⚠️ ${m.model_note}
+    </div>
+    <p class="text-gray-600 text-xs text-center mt-3">المراهنة تنطوي على مخاطر مالية. هذا تحليل احتمالي وليس ضماناً.</p>
+  `;
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function marketRow(label, pct) {
+  const color = pct >= 65 ? '#10b981' : pct >= 45 ? '#f59e0b' : '#6b7280';
+  return `
+    <div class="flex justify-between items-center">
+      <span class="text-gray-300">${label}</span>
+      <div class="flex items-center gap-2">
+        <div class="w-24 bg-gray-700 rounded-full h-2 overflow-hidden">
+          <div class="h-2 rounded-full transition-all" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="text-white font-bold w-10 text-left">${pct}%</span>
+      </div>
+    </div>`;
+}
+
+function closeModal(event) {
+  if (!event || event.target === document.getElementById('modal'))
+    document.getElementById('modal').classList.add('hidden');
+}
+
+// ── Filters ────────────────────────────────────────────────────────────────────
+function filterBy(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => {
+    b.classList.remove('bg-emerald-700','text-white');
+    b.classList.add('bg-gray-800','text-gray-300');
+  });
+  document.getElementById('f-' + f).classList.remove('bg-gray-800','text-gray-300');
+  document.getElementById('f-' + f).classList.add('bg-emerald-700','text-white');
+  renderCards();
+}
+
+function searchMatches() {
+  searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+  renderCards();
+}
+
+// ── Odds checker ───────────────────────────────────────────────────────────────
+async function checkOdds() {
+  const h = parseFloat(document.getElementById('o-home').value);
+  const d = parseFloat(document.getElementById('o-draw').value);
+  const a = parseFloat(document.getElementById('o-away').value);
+  if ([h,d,a].some(v => isNaN(v) || v <= 1)) {
+    alert('يجب أن تكون جميع الأوزان أرقاماً أكبر من 1.0');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/odds-check?home=${h}&draw=${d}&away=${a}`);
+    const data = await res.json();
+    const el = document.getElementById('odds-result');
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <p class="text-gray-400 text-xs mb-2">الأوزان المدخلة</p>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-blue-400">🏠 الأجانب</span><span class="font-bold">${h}</span></div>
+            <div class="flex justify-between"><span class="text-yellow-400">🤝 تعادل</span><span class="font-bold">${d}</span></div>
+            <div class="flex justify-between"><span class="text-red-400">✈️ الضيوف</span><span class="font-bold">${a}</span></div>
+          </div>
+        </div>
+        <div>
+          <p class="text-gray-400 text-xs mb-2">النسب الحقيقية (Shin)</p>
+          <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-blue-400">🏠</span><span class="font-bold text-white">${data.fair_probabilities.home}%</span></div>
+            <div class="flex justify-between"><span class="text-yellow-400">🤝</span><span class="font-bold text-white">${data.fair_probabilities.draw}%</span></div>
+            <div class="flex justify-between"><span class="text-red-400">✈️</span><span class="font-bold text-white">${data.fair_probabilities.away}%</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 pt-3 border-t border-gray-700 flex justify-between items-center">
+        <span class="text-gray-400 text-xs">هامش الشركة (Overround)</span>
+        <span class="font-black text-lg ${data.overround_pct > 8 ? 'text-red-400' : data.overround_pct > 5 ? 'text-yellow-400' : 'text-emerald-400'}">${data.overround_pct}%</span>
+      </div>
+      <p class="text-gray-500 text-xs mt-2">طريقة الحساب: Shin (1993) — الأكثر دقة لأسواق الثلاثة نتائج</p>
+    `;
+  } catch(err) {
+    alert('خطأ في الاتصال بالخادم');
+  }
+}
+
+// ── Auto refresh every 5 minutes ───────────────────────────────────────────────
+setInterval(loadMatches, 5 * 60 * 1000);
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+loadMatches();
+</script>
+</body>
+</html>
